@@ -1,0 +1,48 @@
+name: Delete Stale PRs
+on: push
+
+env:
+ DEPLOYMENT_SCRIPTS_VERSION: "1.3.38"
+
+jobs:
+  delete_stale_prs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        id: checkout
+        uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
+      - name: Set up Python 3.9.5
+        id: install_python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9.5
+      - name: Load python cached venv
+        id: cached-python-dependencies
+        uses: actions/cache@v2
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ env.DEPLOYMENT_SCRIPTS_VERSION }}
+      - name: Install Python Dependencies
+        id: install_python_dependencies
+        if: steps.cached-python-dependencies.outputs.cache-hit != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.GH_USER_CI_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.GH_USER_CI_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-west-2
+        run: |
+          VIRTUAL_ENV="$(pwd)/.venv"
+          mkdir -p $VIRTUAL_ENV
+          python -m venv $VIRTUAL_ENV
+          export PATH="$VIRTUAL_ENV/bin:$PATH"
+          export CODEARTIFACT_AUTH_TOKEN=`aws codeartifact get-authorization-token --domain pyrippler --domain-owner 388418451245 --query authorizationToken --output text --region us-west-2`
+          pip install -i https://aws:${CODEARTIFACT_AUTH_TOKEN}@pyrippler-388418451245.d.codeartifact.us-west-2.amazonaws.com/pypi/pyrippler/simple/ deployment_scripts==$DEPLOYMENT_SCRIPTS_VERSION
+      - name: Delete Stale PRs
+        id: close_pr_and_delete_branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
+        run: |
+          VIRTUAL_ENV="$(pwd)/.venv"
+          export PATH="$VIRTUAL_ENV/bin:$PATH"
+          python -m deployment_scripts.github_branch_manager.github_branch_manager --repo-name "hello-world" --action delete
